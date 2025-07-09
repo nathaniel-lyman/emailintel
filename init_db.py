@@ -7,9 +7,14 @@ Creates the SQLite database and applies the schema.
 import sqlite3
 import os
 from datetime import datetime
+from config import Config
 
-def init_database(db_path='db.sqlite3'):
+def init_database(db_path=None):
     """Initialize the database with the schema."""
+    
+    # Use config path if not provided
+    if db_path is None:
+        db_path = Config.DATABASE_PATH
     
     # Create database connection
     conn = sqlite3.connect(db_path)
@@ -64,8 +69,12 @@ def init_database(db_path='db.sqlite3'):
         conn.close()
 
 
-def reset_database(db_path='db.sqlite3'):
+def reset_database(db_path=None):
     """Reset the database by dropping all tables and reinitializing."""
+    
+    # Use config path if not provided
+    if db_path is None:
+        db_path = Config.DATABASE_PATH
     
     if os.path.exists(db_path):
         print(f"Removing existing database at {db_path}")
@@ -74,8 +83,12 @@ def reset_database(db_path='db.sqlite3'):
     init_database(db_path)
 
 
-def check_database_health(db_path='db.sqlite3'):
+def check_database_health(db_path=None):
     """Check database health and integrity."""
+    
+    # Use config path if not provided
+    if db_path is None:
+        db_path = Config.DATABASE_PATH
     
     if not os.path.exists(db_path):
         print(f"Database not found at {db_path}")
@@ -124,8 +137,9 @@ if __name__ == "__main__":
             print("Usage: python init_db.py [reset|check]")
     else:
         # Default action: initialize database
-        if os.path.exists('db.sqlite3'):
-            print("Database already exists. Use 'python init_db.py reset' to reset it.")
+        db_path = Config.DATABASE_PATH
+        if os.path.exists(db_path):
+            print(f"Database already exists at {db_path}. Use 'python init_db.py reset' to reset it.")
             check_database_health()
         else:
             init_database()
