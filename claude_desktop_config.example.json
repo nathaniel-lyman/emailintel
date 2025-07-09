@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "emailintel-sqlite": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "/Users/mcnellymac/Developer/emailintel/db.sqlite3"
+      ]
+    },
+    "emailintel-fetch": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-fetch"
+      ],
+      "env": {
+        "FETCH_USER_AGENT": "EmailIntel/1.0 (Retail Price Monitor)",
+        "FETCH_TIMEOUT": "20000",
+        "FETCH_MAX_RETRIES": "3",
+        "FETCH_CACHE_TTL": "3600",
+        "FETCH_CACHE_ENABLED": "true"
+      }
+    },
+    "emailintel-github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "<your-github-token-here>"
+      }
+    }
+  }
+}
