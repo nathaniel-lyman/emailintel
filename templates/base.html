@@ -188,6 +188,12 @@
                 if (target.classList.contains('btn-refresh')) {
                     target.innerHTML = 'Refresh';
                     target.disabled = false;
+                    
+                    // Check if we received a redirect response
+                    if (event.detail.xhr.status === 302 || event.detail.xhr.status === 200) {
+                        // Reload the page to show updated content
+                        window.location.reload();
+                    }
                 }
             });
             
