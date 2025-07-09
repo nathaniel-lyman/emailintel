@@ -237,7 +237,14 @@ def index():
         settings_manager = SettingsManager()
         settings = settings_manager.load_settings()
         
-        # Get processing stats
+        # Get processing stats with proper keys for template
+        stats = {}
+        
+        # Total summaries count
+        cursor.execute("SELECT COUNT(*) as count FROM summaries")
+        stats['total_summaries'] = cursor.fetchone()['count']
+        
+        # Get processing stats from last 24 hours
         cursor.execute("""
             SELECT operation_type, COUNT(*) as count
             FROM processing_log
@@ -245,7 +252,12 @@ def index():
             GROUP BY operation_type
         """)
         
-        stats = {row['operation_type']: row['count'] for row in cursor.fetchall()}
+        processing_stats = {row['operation_type']: row['count'] for row in cursor.fetchall()}
+        
+        # Map processing_log operation types to template expected keys
+        stats['scrape'] = processing_stats.get('scraping_summarization', 0)
+        stats['summarize'] = processing_stats.get('scraping_summarization', 0)
+        stats['email'] = processing_stats.get('daily_digest', 0)
         
         conn.close()
         
@@ -319,16 +331,32 @@ def refresh():
         summarizer = Summarizer()
         summarized_count = summarizer.summarize_new_headlines()
         
-        return jsonify({
-            'success': True,
-            'articles_scraped': len(articles),
-            'summaries_created': summarized_count,
-            'timestamp': datetime.now().isoformat()
-        })
+        # For htmx requests, return success message that will be shown as flash message
+        if request.headers.get('HX-Request'):
+            if summarized_count > 0:
+                flash(f'Refresh successful! Scraped {len(articles)} articles and created {summarized_count} summaries.', 'success')
+            else:
+                flash(f'Refresh completed. Scraped {len(articles)} articles, no new summaries created.', 'info')
+            
+            # Redirect to index to refresh the page
+            return redirect(url_for('index'))
+        else:
+            # For API requests, return JSON
+            return jsonify({
+                'success': True,
+                'articles_scraped': len(articles),
+                'summaries_created': summarized_count,
+                'timestamp': datetime.now().isoformat()
+            })
         
     except Exception as e:
         logger.error(f"Manual refresh failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        
+        if request.headers.get('HX-Request'):
+            flash(f'Refresh failed: {str(e)}', 'error')
+            return redirect(url_for('index'))
+        else:
+            return jsonify({'error': str(e)}), 500
 
 
 @app.route('/health')
