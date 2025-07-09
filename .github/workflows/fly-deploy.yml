@@ -226,7 +226,7 @@ jobs:
         
         # Check health endpoint
         sleep 30  # Wait for app to start
-        APP_URL=$(flyctl info --app retail-price-cut-summary --json | jq -r '.Hostname')
+        APP_URL="retail-price-cut-summary.fly.dev"
         
         echo "Checking health endpoint at https://${APP_URL}/health"
         curl -f "https://${APP_URL}/health" || exit 1
