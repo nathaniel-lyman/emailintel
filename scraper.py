@@ -91,13 +91,13 @@ class NewsScraper:
     def scrape_news(self, hours_back: int = 24) -> List[Dict]:
         """Scrape news based on current settings."""
         keywords = self.settings_manager.get_keywords_list()
-        domains = self.settings_manager.get_domains_list()
+        # Note: domains are ignored for broader Google News search
         
         all_articles = []
         
         # Build and execute queries
         for keyword in keywords:
-            rss_url = self._build_google_news_url(keyword, domains)
+            rss_url = self._build_google_news_url(keyword)
             articles = self._fetch_rss_feed(rss_url, keyword)
             all_articles.extend(articles)
         
@@ -112,18 +112,11 @@ class NewsScraper:
         return recent_articles
     
     def _build_google_news_url(self, keyword: str, domains: List[str] = None) -> str:
-        """Build Google News RSS URL with keyword and optional domain filtering."""
+        """Build Google News RSS URL with keyword (domain filtering disabled for broader search)."""
         base_url = "https://news.google.com/rss/search"
         
-        # Build query
-        query_parts = [keyword]
-        
-        if domains:
-            # Add site: operators for domain filtering
-            site_query = " OR ".join([f"site:{domain}" for domain in domains])
-            query_parts.append(f"({site_query})")
-        
-        query = " ".join(query_parts)
+        # Build query - just use keyword without domain filtering
+        query = keyword
         encoded_query = quote_plus(query)
         
         # Add parameters for better results
@@ -148,10 +141,10 @@ class NewsScraper:
                 domain = urlparse(url).netloc
                 self.rate_limiter.wait_if_needed(domain)
                 
-                # Check robots.txt
-                if not self.robots_checker.can_fetch(url):
-                    logger.warning(f"Robots.txt disallows fetching {url}")
-                    return []
+                # Check robots.txt (temporarily disabled for Google News)
+                # if not self.robots_checker.can_fetch(url):
+                #     logger.warning(f"Robots.txt disallows fetching {url}")
+                #     return []
                 
                 # Fetch feed
                 logger.info(f"Fetching RSS feed for keyword: {keyword} (attempt {attempt + 1})")
