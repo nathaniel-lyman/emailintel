@@ -1,0 +1,161 @@
+name: Daily Digest
+
+on:
+  schedule:
+    # Run daily at 6 AM Central Time (11 AM UTC during CST, 12 PM UTC during CDT)
+    - cron: '0 12 *  * *'
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      hours_back:
+        description: 'Hours back to scrape'
+        required: false
+        default: '24'
+        type: string
+
+jobs:
+  daily-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_minimal.txt
+    
+    - name: Set up environment
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        SMTP_HOST: ${{ secrets.SMTP_HOST }}
+        SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        SMTP_FROM_EMAIL: ${{ secrets.SMTP_FROM_EMAIL }}
+        SMTP_TO_EMAIL: ${{ secrets.SMTP_TO_EMAIL }}
+        SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+        SENDGRID_FROM_EMAIL: ${{ secrets.SENDGRID_FROM_EMAIL }}
+        SENDGRID_TO_EMAIL: ${{ secrets.SENDGRID_TO_EMAIL }}
+        FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
+        DATABASE_URL: sqlite:///db.sqlite3
+        LOG_LEVEL: INFO
+        SCHEDULER_TIMEZONE: US/Central
+        MAX_REQUESTS_PER_MINUTE: 10
+        REQUEST_TIMEOUT: 30
+      run: |
+        # Create .env file for the application
+        cat > .env << EOF
+        OPENAI_API_KEY=${OPENAI_API_KEY}
+        SMTP_HOST=${SMTP_HOST}
+        SMTP_PORT=${SMTP_PORT}
+        SMTP_USERNAME=${SMTP_USERNAME}
+        SMTP_PASSWORD=${SMTP_PASSWORD}
+        SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+        SMTP_TO_EMAIL=${SMTP_TO_EMAIL}
+        SENDGRID_API_KEY=${SENDGRID_API_KEY}
+        SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
+        SENDGRID_TO_EMAIL=${SENDGRID_TO_EMAIL}
+        FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+        DATABASE_URL=${DATABASE_URL}
+        LOG_LEVEL=${LOG_LEVEL}
+        SCHEDULER_TIMEZONE=${SCHEDULER_TIMEZONE}
+        MAX_REQUESTS_PER_MINUTE=${MAX_REQUESTS_PER_MINUTE}
+        REQUEST_TIMEOUT=${REQUEST_TIMEOUT}
+        EOF
+    
+    - name: Initialize database
+      run: |
+        python init_db.py
+    
+    - name: Run scraping and summarization
+      run: |
+        python -c "
+        from scraper import NewsScraper
+        from summarizer import Summarizer
+        import sys
+        
+        try:
+            # Scrape news
+            scraper = NewsScraper()
+            hours_back = int('${{ github.event.inputs.hours_back }}' or '24')
+            articles = scraper.scrape_news(hours_back=hours_back)
+            print(f'Scraped {len(articles)} articles')
+            
+            # Summarize new headlines
+            summarizer = Summarizer()
+            summarized_count = summarizer.summarize_new_headlines()
+            print(f'Summarized {summarized_count} headlines')
+            
+            if summarized_count == 0:
+                print('No new headlines to summarize')
+                
+        except Exception as e:
+            print(f'Error during scraping/summarization: {e}')
+            sys.exit(1)
+        "
+    
+    - name: Send daily digest
+      run: |
+        python -c "
+        from emailer import DailyDigest
+        import sys
+        
+        try:
+            digest = DailyDigest()
+            success = digest.send_daily_digest()
+            
+            if success:
+                print('Daily digest sent successfully')
+            else:
+                print('Daily digest failed to send')
+                sys.exit(1)
+                
+        except Exception as e:
+            print(f'Error sending daily digest: {e}')
+            sys.exit(1)
+        "
+    
+    - name: Health check
+      if: always()
+      run: |
+        python -c "
+        from init_db import check_database_health
+        import os
+        
+        if check_database_health():
+            print('Database health check passed')
+        else:
+            print('Database health check failed')
+            
+        # Check if cost tracking file exists
+        if os.path.exists('openai_costs.json'):
+            print('OpenAI cost tracking file exists')
+        else:
+            print('OpenAI cost tracking file not found')
+        "
+    
+    - name: Upload artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-logs
+        path: |
+          *.log
+          openai_costs.json
+          db.sqlite3
+        retention-days: 7
+    
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "Daily digest workflow failed. Check the logs and artifacts for details."
+        echo "Job URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

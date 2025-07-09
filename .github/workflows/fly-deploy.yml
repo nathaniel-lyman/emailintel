@@ -1,0 +1,240 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_minimal.txt
+    
+    - name: Set up test environment
+      run: |
+        # Create minimal .env for testing
+        cat > .env << EOF
+        FLASK_SECRET_KEY=test-secret-key
+        DATABASE_URL=sqlite:///test.db
+        LOG_LEVEL=INFO
+        SCHEDULER_TIMEZONE=US/Central
+        MAX_REQUESTS_PER_MINUTE=10
+        REQUEST_TIMEOUT=30
+        EOF
+    
+    - name: Initialize test database
+      run: |
+        python init_db.py
+    
+    - name: Run backend tests
+      run: |
+        python test_backend.py
+    
+    - name: Test configuration validation
+      run: |
+        python -c "
+        from config import Config
+        
+        # Test configuration loading
+        config = Config()
+        print('Configuration loaded successfully')
+        
+        # Test validation (should have errors without API keys)
+        errors = config.validate()
+        print(f'Validation errors (expected): {len(errors)}')
+        "
+    
+    - name: Test database operations
+      run: |
+        python -c "
+        from config import SettingsManager
+        from init_db import check_database_health
+        
+        # Test database health
+        if not check_database_health():
+            raise Exception('Database health check failed')
+        
+        # Test settings management
+        manager = SettingsManager()
+        settings = manager.load_settings()
+        print(f'Settings loaded: {len(settings)} items')
+        
+        # Test settings save
+        success = manager.save_settings('test,keywords', 'test.com')
+        if not success:
+            raise Exception('Settings save failed')
+        
+        print('Database operations test passed')
+        "
+  
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Fly CLI
+      uses: superfly/flyctl-actions/setup-flyctl@master
+    
+    - name: Create fly.toml
+      run: |
+        cat > fly.toml << EOF
+        app = "retail-price-cut-summary"
+        primary_region = "dfw"
+        
+        [build]
+        
+        [env]
+          PORT = "8080"
+          FLASK_ENV = "production"
+          LOG_LEVEL = "INFO"
+          SCHEDULER_TIMEZONE = "US/Central"
+          MAX_REQUESTS_PER_MINUTE = "10"
+          REQUEST_TIMEOUT = "30"
+        
+        [http_service]
+          internal_port = 8080
+          force_https = true
+          auto_stop_machines = true
+          auto_start_machines = true
+          min_machines_running = 1
+          processes = ["app"]
+        
+        [[services]]
+        protocol = "tcp"
+        internal_port = 8080
+        processes = ["app"]
+        
+          [[services.ports]]
+          port = 80
+          handlers = ["http"]
+          force_https = true
+        
+          [[services.ports]]
+          port = 443
+          handlers = ["tls", "http"]
+        
+          [services.concurrency]
+          type = "connections"
+          hard_limit = 25
+          soft_limit = 20
+        
+        [[mounts]]
+        source = "data"
+        destination = "/app/data"
+        
+        [processes]
+        app = "python app.py"
+        
+        [[vm]]
+        cpu_kind = "shared"
+        cpus = 1
+        memory_mb = 512
+        EOF
+    
+    - name: Create Dockerfile
+      run: |
+        cat > Dockerfile << EOF
+        FROM python:3.11-slim
+        
+        WORKDIR /app
+        
+        # Install system dependencies
+        RUN apt-get update && apt-get install -y \\
+            gcc \\
+            && rm -rf /var/lib/apt/lists/*
+        
+        # Copy requirements and install Python dependencies
+        COPY requirements_minimal.txt .
+        RUN pip install --no-cache-dir -r requirements_minimal.txt
+        
+        # Copy application code
+        COPY . .
+        
+        # Create data directory for SQLite
+        RUN mkdir -p /app/data
+        
+        # Set environment variables
+        ENV FLASK_APP=app.py
+        ENV FLASK_ENV=production
+        ENV DATABASE_URL=sqlite:///data/db.sqlite3
+        
+        # Initialize database
+        RUN python init_db.py
+        
+        # Expose port
+        EXPOSE 8080
+        
+        # Run the application
+        CMD ["python", "app.py"]
+        EOF
+    
+    - name: Deploy to Fly.io
+      env:
+        FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      run: |
+        # Set secrets
+        flyctl secrets set \
+          OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+          SMTP_HOST="${{ secrets.SMTP_HOST }}" \
+          SMTP_PORT="${{ secrets.SMTP_PORT }}" \
+          SMTP_USERNAME="${{ secrets.SMTP_USERNAME }}" \
+          SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}" \
+          SMTP_FROM_EMAIL="${{ secrets.SMTP_FROM_EMAIL }}" \
+          SMTP_TO_EMAIL="${{ secrets.SMTP_TO_EMAIL }}" \
+          SENDGRID_API_KEY="${{ secrets.SENDGRID_API_KEY }}" \
+          SENDGRID_FROM_EMAIL="${{ secrets.SENDGRID_FROM_EMAIL }}" \
+          SENDGRID_TO_EMAIL="${{ secrets.SENDGRID_TO_EMAIL }}" \
+          FLASK_SECRET_KEY="${{ secrets.FLASK_SECRET_KEY }}" \
+          --app retail-price-cut-summary
+        
+        # Deploy
+        flyctl deploy --app retail-price-cut-summary
+    
+    - name: Verify deployment
+      env:
+        FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      run: |
+        # Check app status
+        flyctl status --app retail-price-cut-summary
+        
+        # Check health endpoint
+        sleep 30  # Wait for app to start
+        APP_URL=$(flyctl info --app retail-price-cut-summary --json | jq -r '.Hostname')
+        
+        echo "Checking health endpoint at https://${APP_URL}/health"
+        curl -f "https://${APP_URL}/health" || exit 1
+        
+        echo "Deployment verified successfully!"
+    
+    - name: Notify on deployment failure
+      if: failure()
+      run: |
+        echo "Deployment failed. Check the logs for details."
+        echo "Job URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
