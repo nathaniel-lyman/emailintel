@@ -97,6 +97,75 @@ class ContentExtractor:
         return text.strip()
 
 
+class TopicClassifier:
+    """AI-powered topic classification for news summaries."""
+    
+    def __init__(self):
+        self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        
+        # Define topic categories
+        self.topics = [
+            "Electronics & Gaming",      # PlayStation, Xbox, phones, computers, etc.
+            "Home & Garden",            # Appliances, furniture, home improvement
+            "Clothing & Fashion",       # Apparel, shoes, accessories
+            "Health & Beauty",          # Personal care, cosmetics, health products
+            "Food & Beverages",         # Groceries, restaurants, food delivery
+            "Toys & Baby",             # Children's items, baby products
+            "Sports & Outdoors",        # Sporting goods, outdoor equipment
+            "Automotive",              # Cars, parts, services
+            "Books & Media",           # Books, movies, music
+            "General Retail"           # Broad sales, store-wide discounts, other
+        ]
+    
+    def classify_topic(self, summary_text: str, headline_title: str = "") -> str:
+        """Classify a summary into one of the predefined topic categories."""
+        
+        try:
+            # Combine summary and headline for better context
+            content = f"Headline: {headline_title}\nSummary: {summary_text}".strip()
+            
+            # Create prompt for topic classification
+            topics_list = "\n".join([f"- {topic}" for topic in self.topics])
+            
+            prompt = f"""Classify this retail price cut news into ONE of these categories:
+
+{topics_list}
+
+Content to classify:
+{content}
+
+Instructions:
+- Choose the MOST SPECIFIC category that fits
+- If about a specific product type (like PlayStation, iPhone), choose the category it belongs to
+- If about general store sales or multiple categories, choose "General Retail"
+- Respond with ONLY the category name, exactly as listed above
+
+Category:"""
+
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Use mini for cost efficiency
+                messages=[
+                    {"role": "system", "content": "You are a news categorization expert. Classify retail news into specific product categories."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=20,
+                temperature=0.1
+            )
+            
+            classified_topic = response.choices[0].message.content.strip()
+            
+            # Validate the response is one of our topics
+            if classified_topic in self.topics:
+                return classified_topic
+            else:
+                logger.warning(f"Invalid topic returned: {classified_topic}, defaulting to General Retail")
+                return "General Retail"
+                
+        except Exception as e:
+            logger.error(f"Error classifying topic: {e}")
+            return "General Retail"
+
+
 class Summarizer:
     """Main summarization class using OpenAI GPT-4o."""
     
@@ -105,6 +174,7 @@ class Summarizer:
         self.content_extractor = ContentExtractor()
         self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
         self.cost_tracker = CostTracker()
+        self.topic_classifier = TopicClassifier()
     
     def summarize_new_headlines(self) -> int:
         """Summarize all headlines without summaries."""
@@ -173,7 +243,7 @@ class Summarizer:
             processing_time = time.time() - start_time
             
             # Save summary
-            self._save_summary(headline['id'], summary, processing_time)
+            self._save_summary(headline['id'], summary, processing_time, headline['title'])
             
             logger.info(f"Summarized: {headline['title'][:50]}...")
             return True
@@ -230,18 +300,22 @@ Summary:"""
             logger.error(f"OpenAI API error: {e}")
             return None
     
-    def _save_summary(self, headline_id: int, summary: str, processing_time: float) -> None:
-        """Save summary to database."""
+    def _save_summary(self, headline_id: int, summary: str, processing_time: float, headline_title: str = "") -> None:
+        """Save summary to database with topic classification."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         try:
+            # Classify the topic
+            topic = self.topic_classifier.classify_topic(summary, headline_title)
+            
             cursor.execute("""
-                INSERT INTO summaries (headline_id, summary_text, processing_time)
-                VALUES (?, ?, ?)
-            """, (headline_id, summary, processing_time))
+                INSERT INTO summaries (headline_id, summary_text, topic, processing_time)
+                VALUES (?, ?, ?, ?)
+            """, (headline_id, summary, topic, processing_time))
             
             conn.commit()
+            logger.info(f"Saved summary for headline {headline_id} with topic: {topic}")
             
         except Exception as e:
             logger.error(f"Error saving summary: {e}")

@@ -211,7 +211,7 @@ def index():
         
         # Get summaries from past 7 days
         cursor.execute("""
-            SELECT s.id, s.summary_text, s.created_at,
+            SELECT s.id, s.summary_text, s.topic, s.created_at,
                    h.title, h.link, h.source, h.published_date
             FROM summaries s
             JOIN headlines h ON s.headline_id = h.id
@@ -225,6 +225,7 @@ def index():
             summaries.append({
                 'id': row['id'],
                 'summary': row['summary_text'],
+                'topic': row['topic'] or 'General Retail',
                 'title': row['title'],
                 'link': row['link'],
                 'source': row['source'],

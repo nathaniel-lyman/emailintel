@@ -121,8 +121,8 @@ class DailyDigest:
             self._log_operation('email', 'skipped', 'No new summaries', 0)
             return True  # Not an error, just nothing to send
         
-        # Group summaries by retailer
-        grouped_summaries = self._group_by_retailer(summaries)
+        # Group summaries by topic
+        grouped_summaries = self._group_by_topic(summaries)
         
         # Generate email content
         subject = f"Retail Price Cuts Digest - {datetime.now().strftime('%B %d, %Y')}"
@@ -148,17 +148,18 @@ class DailyDigest:
         cutoff = datetime.now() - timedelta(hours=hours)
         
         cursor.execute("""
-            SELECT s.summary_text, h.title, h.link, h.source, h.published_date
+            SELECT s.summary_text, s.topic, h.title, h.link, h.source, h.published_date
             FROM summaries s
             JOIN headlines h ON s.headline_id = h.id
             WHERE s.created_at >= ?
-            ORDER BY h.source, h.published_date DESC
+            ORDER BY s.topic, h.published_date DESC
         """, (cutoff.isoformat(),))
         
         summaries = []
         for row in cursor.fetchall():
             summaries.append({
                 'summary': row['summary_text'],
+                'topic': row['topic'] or 'General Retail',
                 'title': row['title'],
                 'link': row['link'],
                 'source': row['source'],
@@ -168,17 +169,18 @@ class DailyDigest:
         conn.close()
         return summaries
     
-    def _group_by_retailer(self, summaries: List[Dict]) -> Dict[str, List[Dict]]:
-        """Group summaries by retailer/source."""
+    def _group_by_topic(self, summaries: List[Dict]) -> Dict[str, List[Dict]]:
+        """Group summaries by topic category."""
         grouped = defaultdict(list)
         
         for summary in summaries:
-            # Extract retailer from source or summary
-            retailer = self._extract_retailer(summary)
-            grouped[retailer].append(summary)
+            # Use the topic from the summary, default to 'General Retail' if missing
+            topic = summary.get('topic', 'General Retail')
+            grouped[topic].append(summary)
         
-        # Sort retailers alphabetically
-        return dict(sorted(grouped.items()))
+        # Sort topics with 'General Retail' last
+        sorted_topics = sorted(grouped.items(), key=lambda x: (x[0] == 'General Retail', x[0]))
+        return dict(sorted_topics)
     
     def _extract_retailer(self, summary: Dict) -> str:
         """Extract retailer name from summary or source."""
@@ -213,12 +215,12 @@ class DailyDigest:
         lines.append("")
         
         total_count = sum(len(summaries) for summaries in grouped_summaries.values())
-        lines.append(f"Today's digest includes {total_count} price cuts from {len(grouped_summaries)} retailers:")
+        lines.append(f"Today's digest includes {total_count} price cuts across {len(grouped_summaries)} categories:")
         lines.append("")
         
-        for retailer, summaries in grouped_summaries.items():
-            lines.append(f"\n{retailer.upper()} ({len(summaries)} items)")
-            lines.append("-" * 40)
+        for topic, summaries in grouped_summaries.items():
+            lines.append(f"\n📦 {topic.upper()} ({len(summaries)} items)")
+            lines.append("-" * 50)
             
             for summary in summaries:
                 lines.append(f"\n• {summary['summary']}")
@@ -257,10 +259,10 @@ class DailyDigest:
         html_parts.append(f"<h1>Retail Price Cuts Daily Digest - {datetime.now().strftime('%B %d, %Y')}</h1>")
         
         total_count = sum(len(summaries) for summaries in grouped_summaries.values())
-        html_parts.append(f"<p>Today's digest includes <strong>{total_count}</strong> price cuts from <strong>{len(grouped_summaries)}</strong> retailers:</p>")
+        html_parts.append(f"<p>Today's digest includes <strong>{total_count}</strong> price cuts across <strong>{len(grouped_summaries)}</strong> categories:</p>")
         
-        for retailer, summaries in grouped_summaries.items():
-            html_parts.append(f"<h2>{retailer} ({len(summaries)} items)</h2>")
+        for topic, summaries in grouped_summaries.items():
+            html_parts.append(f"<h2>📦 {topic} ({len(summaries)} items)</h2>")
             
             for summary in summaries:
                 html_parts.append('<div class="summary">')

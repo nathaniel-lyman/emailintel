@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     headline_id INTEGER NOT NULL,
     summary_text TEXT NOT NULL,
+    topic TEXT DEFAULT 'General', -- AI-classified topic category
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processing_time REAL, -- Time taken to generate summary in seconds
     FOREIGN KEY (headline_id) REFERENCES headlines(id) ON DELETE CASCADE,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS summaries (
 -- Create index for summaries table
 CREATE INDEX IF NOT EXISTS idx_summaries_headline_id ON summaries(headline_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_created_at ON summaries(created_at);
+CREATE INDEX IF NOT EXISTS idx_summaries_topic ON summaries(topic);
 
 -- Settings table: stores configuration
 CREATE TABLE IF NOT EXISTS settings (
