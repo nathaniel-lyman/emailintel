@@ -10,7 +10,7 @@ requests==2.31.0
 lxml==4.9.4
 
 # AI Integration
-openai==1.6.1
+openai==1.93.2
 
 # Task Scheduling
 APScheduler==3.10.4

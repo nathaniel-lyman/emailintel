@@ -40,6 +40,13 @@ def init_database(db_path='db.sqlite3'):
             print("\nDefault settings loaded:")
             print(f"  Keywords: {settings[0]}")
             print(f"  Domains: {settings[1]}")
+        else:
+            print("\nWarning: Default settings not found, inserting manually...")
+            cursor.execute("""
+                INSERT INTO settings (id, keywords, domains) 
+                VALUES (1, 'retail price cut,markdown,rollback,discount,price drop', 'walmart.com,target.com,amazon.com,costco.com,kroger.com')
+            """)
+            conn.commit()
         
         # Log the initialization
         cursor.execute("""

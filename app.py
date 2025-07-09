@@ -256,7 +256,13 @@ def index():
     except Exception as e:
         logger.error(f"Error in index route: {e}")
         flash('Error loading dashboard', 'error')
-        return render_template('index.html', summaries=[], settings={}, stats={})
+        # Provide default settings structure
+        default_settings = {
+            'keywords': 'retail price cut,markdown,rollback,discount,price drop',
+            'domains': 'walmart.com,target.com,amazon.com,costco.com,kroger.com',
+            'updated_at': None
+        }
+        return render_template('index.html', summaries=[], settings=default_settings, stats={})
 
 
 @app.route('/settings', methods=['GET', 'POST'])
